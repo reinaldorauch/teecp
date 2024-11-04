@@ -12,10 +12,11 @@ One should be able to run further processing in a long running process on
 the fly:
 
 ```sh
+$ alias teecp='go run github.com/jeffque/teecp@latest'
 $ ./some-long-process | teecp --server=:6667 | grep "dodongo"
 ```
 
-For each other terminal:
+For each other terminal (assumes that `alias teecp` has been applied):
 
 ```sh
 $ teecp --client=localhost:6667 | grep "bomb"  | teecp --server=:6668

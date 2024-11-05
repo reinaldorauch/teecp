@@ -40,7 +40,7 @@ func listenerTeecp(port int) {
 			os.Exit(1)
 		}
 
-		fmt.Println(txt[:len(txt)-1])
+		fmt.Print(txt)
 	}
 }
 
@@ -48,7 +48,7 @@ func serverTeecp(port int) {
 	var teecp tcp.TeeCPList = tcp.TeeCPList{}
 
 	tcp.Attach(&teecp, func(msg string) bool {
-		fmt.Println(msg)
+		fmt.Print(msg)
 		return true
 	})
 
@@ -61,11 +61,13 @@ func serverTeecp(port int) {
 	defer ln.Close()
 	go acceptNewConns(ln, &teecp)
 
-	// tcp.Attach(&teecp)
-
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		txt := scanner.Text()
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		txt, err := reader.ReadString('\n')
+		if err != nil {
+			os.Stderr.WriteString(fmt.Sprintf("Some error while reading from stdin [%s], closing teecp\n", err.Error()))
+			os.Exit(1)
+		}
 		teecp.Broadcast(txt)
 	}
 }
@@ -75,9 +77,9 @@ func acceptNewConns(ln net.Listener, teecp *tcp.TeeCPList) {
 		conn, err := ln.Accept()
 		if err != nil {
 			os.Stderr.WriteString(fmt.Sprintf("tried to connect but failed %s\n", err.Error()))
-			continue
+			return
 		}
-		go handleConnection(conn, teecp)
+		handleConnection(conn, teecp)
 	}
 }
 
@@ -85,11 +87,6 @@ func handleConnection(conn net.Conn, teecp *tcp.TeeCPList) {
 	tcp.Attach(teecp, func(msg string) bool {
 		_, err := conn.Write([]byte(msg))
 		if err != nil {
-			conn.Close()
-			return false
-		}
-		_, err2 := conn.Write([]byte("\n"))
-		if err2 != nil {
 			conn.Close()
 			return false
 		}

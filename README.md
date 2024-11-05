@@ -19,19 +19,20 @@ $ ./some-long-process | teecp | grep "dodongo"
 For each other terminal (assumes that `alias teecp` has been applied):
 
 ```sh
-$ teecp --server=false | grep "bomb"  | teecp --port 6668
+$ teecp --client | grep "bomb"  | teecp --port 6668
 ```
 
 ```sh
-$ teecp --server=false --port 6668 | wc -l
+$ teecp --client --port 6668 | wc -l
 ```
 
 ```sh
-$ teecp --server=false | grep "[Ll]ink"
+$ teecp --client | grep "[Ll]ink"
 ```
 
 ## Current status
 
-- [ ] Command line 
-- [X] User selected port ~~(for now is 6667)~~
-- [ ] Alternate between client and server with something more beautiful
+- [ ] Create executable `teecp` to allow better utility experience
+- [ ] Add `asdf` plugin for easiness of use
+- [ ] SSL [#4](https://github.com/jeffque/teecp/issues/4)
+- [ ] Auth [#5](https://github.com/jeffque/teecp/issues/5)

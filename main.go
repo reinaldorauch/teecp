@@ -12,15 +12,48 @@ import (
 	"github.com/jeffque/teecp/teecp"
 )
 
+type appState = int32
+type appStateDescription struct {
+	state       appState
+	description string
+}
+
+var appTypeStates = struct {
+	undefined appStateDescription
+	server    appStateDescription
+	client    appStateDescription
+}{
+	appStateDescription{0, "undefined"},
+	appStateDescription{1, "server"},
+	appStateDescription{2, "client"},
+}
+
+func (s appStateDescription) isServer() bool {
+	return s.state != appTypeStates.client.state
+}
+
+func defineState(desiredVal appStateDescription, currAppState *appStateDescription) func(s string) error {
+	return func(s string) error {
+		if currAppState.state != appTypeStates.undefined.state {
+			return fmt.Errorf("Already defined as a [%s], cannot be redefined as a [%s]", currAppState.description, desiredVal.description)
+		}
+		*currAppState = desiredVal
+		return nil
+	}
+}
+
 func main() {
 	var port int
-	var server bool
+
+	serverClientSetted := appTypeStates.undefined
+
 	flag.IntVar(&port, "port", 6667, "A listener port")
-	flag.BoolVar(&server, "server", true, "Define a server teecp instance")
+	flag.BoolFunc("server", "Define a server teecp instance (conflict with --client)", defineState(appTypeStates.server, &serverClientSetted))
+	flag.BoolFunc("client", "Define a client teecp instance (conflicts with --server)", defineState(appTypeStates.client, &serverClientSetted))
 	flag.Parse()
 
 	var err error
-	if server {
+	if serverClientSetted.isServer() {
 		err = serverTeecp(port)
 	} else {
 		err = listenerTeecp(port)

@@ -28,6 +28,7 @@ func main() {
 
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 }
 
@@ -59,7 +60,7 @@ func serverTeecp(port int) error {
 	// When creating the teecp.Clients, always have a local client so we can see the echo.
 	clients := teecp.Clients{}
 	clients.Attach(func(msg string) bool {
-		fmt.Println(msg)
+		fmt.Print(msg)
 		return true
 	})
 

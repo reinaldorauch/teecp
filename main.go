@@ -5,24 +5,29 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"flag"
 
 	tcp "github.com/jeffque/teecp/teecp"
 )
 
 func main() {
-	port := ":6667"
-	fmt.Println(os.Args)
-	if len(os.Args) < 2 {
+	var port int
+	var server bool
+	flag.IntVar(&port, "port", 6667, "A listener port")
+    flag.BoolVar(&server, "server", true, "Define a server teecp instance")
+	flag.Parse()
+
+	if server {
 		serverTeecp(port)
 	} else {
 		listenerTeecp(port)
 	}
 }
 
-func listenerTeecp(port string) {
-	conn, err := net.Dial("tcp", fmt.Sprintf("localhost%s", port))
+func listenerTeecp(port int) {
+	conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
 	if err != nil {
-		os.Stderr.WriteString(fmt.Sprintf("Could not open socket to port %s\n", port))
+		os.Stderr.WriteString(fmt.Sprintf("Could not open socket to port %d\n", port))
 		os.Exit(1)
 	}
 	defer conn.Close()
@@ -39,7 +44,7 @@ func listenerTeecp(port string) {
 	}
 }
 
-func serverTeecp(port string) {
+func serverTeecp(port int) {
 	var teecp tcp.TeeCPList = tcp.TeeCPList{}
 
 	tcp.Attach(&teecp, func(msg string) bool {
@@ -47,10 +52,10 @@ func serverTeecp(port string) {
 		return true
 	})
 
-	ln, err := net.Listen("tcp", port)
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 
 	if err != nil {
-		os.Stderr.WriteString(fmt.Sprintf("Could not open socket to port %s\n", port))
+		os.Stderr.WriteString(fmt.Sprintf("Could not open socket to port %d\n", port))
 		os.Exit(1)
 	}
 	defer ln.Close()

@@ -36,6 +36,9 @@ func listenerTeecp(port int) {
 	for {
 		txt, err := reader.ReadString('\n')
 		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
 			os.Stderr.WriteString(fmt.Sprintf("Some error while reading [%s], closing stream\n", err.Error()))
 			os.Exit(1)
 		}
@@ -65,6 +68,9 @@ func serverTeecp(port int) {
 	for {
 		txt, err := reader.ReadString('\n')
 		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
 			os.Stderr.WriteString(fmt.Sprintf("Some error while reading from stdin [%s], closing teecp\n", err.Error()))
 			os.Exit(1)
 		}

@@ -1,6 +1,8 @@
 package teecp
 
-import "sync"
+import (
+	"sync"
+)
 
 // Clients maintains a slice of receivers for teecp.
 type Clients struct {
@@ -21,6 +23,7 @@ func (c *Clients) Broadcast(msg string) {
 			// Replace the current receive with the last one in the slice and reset the index.
 			// This allows for in-place replacement.
 			c.receivers[i] = c.receivers[len(c.receivers)-1]
+			c.receivers = c.receivers[:len(c.receivers)-1]
 			i--
 		}
 	}

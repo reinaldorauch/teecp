@@ -13,25 +13,25 @@ the fly:
 
 ```sh
 $ alias teecp='go run github.com/jeffque/teecp@latest'
-$ ./some-long-process | teecp --server=:6667 | grep "dodongo"
+$ ./some-long-process | teecp | grep "dodongo"
 ```
 
 For each other terminal (assumes that `alias teecp` has been applied):
 
 ```sh
-$ teecp --client=localhost:6667 | grep "bomb"  | teecp --server=:6668
+$ teecp --server=false | grep "bomb"  | teecp --port 6668
 ```
 
 ```sh
-$ teecp --client=localhost:6668 | wc -l
+$ teecp --server=false --port 6668 | wc -l
 ```
 
 ```sh
-$ teecp --client=localhost:6667 | grep "[Ll]ink"
+$ teecp --server=false | grep "[Ll]ink"
 ```
 
 ## Current status
 
 - [ ] Command line 
-- [ ] User selected port (for now is 6667)
+- [X] User selected port ~~(for now is 6667)~~
 - [ ] Alternate between client and server with something more beautiful

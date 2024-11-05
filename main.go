@@ -2,10 +2,10 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"net"
 	"os"
-	"flag"
 
 	tcp "github.com/jeffque/teecp/teecp"
 )
@@ -14,7 +14,7 @@ func main() {
 	var port int
 	var server bool
 	flag.IntVar(&port, "port", 6667, "A listener port")
-    flag.BoolVar(&server, "server", true, "Define a server teecp instance")
+	flag.BoolVar(&server, "server", true, "Define a server teecp instance")
 	flag.Parse()
 
 	if server {

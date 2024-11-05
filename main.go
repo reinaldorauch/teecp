@@ -2,12 +2,14 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 
-	tcp "github.com/jeffque/teecp/teecp"
+	"github.com/jeffque/teecp/teecp"
 )
 
 func main() {
@@ -17,85 +19,100 @@ func main() {
 	flag.BoolVar(&server, "server", true, "Define a server teecp instance")
 	flag.Parse()
 
+	var err error
 	if server {
-		serverTeecp(port)
+		err = serverTeecp(port)
 	} else {
-		listenerTeecp(port)
+		err = listenerTeecp(port)
+	}
+
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 	}
 }
 
-func listenerTeecp(port int) {
+func listenerTeecp(port int) error {
 	conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
 	if err != nil {
-		os.Stderr.WriteString(fmt.Sprintf("Could not open socket to port %d\n", port))
-		os.Exit(1)
+		return fmt.Errorf("Could not open socket to port %d: %w\n", port, err)
 	}
 	defer conn.Close()
-	reader := bufio.NewReader(conn)
 
+	reader := bufio.NewReader(conn)
 	for {
 		txt, err := reader.ReadString('\n')
 		if err != nil {
-			if err.Error() == "EOF" {
+			if errors.Is(err, io.EOF) {
 				break
 			}
-			os.Stderr.WriteString(fmt.Sprintf("Some error while reading [%s], closing stream\n", err.Error()))
-			os.Exit(1)
+			return fmt.Errorf("error reading stream: %w\nclosing", err)
 		}
 
-		fmt.Print(txt)
+		// Fprint not strictly needed, but doing so for consistency.
+		fmt.Fprint(os.Stdout, txt)
 	}
+
+	return nil
 }
 
-func serverTeecp(port int) {
-	var teecp tcp.TeeCPList = tcp.TeeCPList{}
-
-	tcp.Attach(&teecp, func(msg string) bool {
-		fmt.Print(msg)
+func serverTeecp(port int) error {
+	// When creating the teecp.Clients, always have a local client so we can see the echo.
+	clients := teecp.Clients{}
+	clients.Attach(func(msg string) bool {
+		fmt.Println(msg)
 		return true
 	})
 
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-
 	if err != nil {
-		os.Stderr.WriteString(fmt.Sprintf("Could not open socket to port %d\n", port))
-		os.Exit(1)
+		return fmt.Errorf("Could not open socket to port %d: %w\n", port, err)
 	}
 	defer ln.Close()
-	go acceptNewConns(ln, &teecp)
+
+	// Create a channel so we can signal to the goroutine that it can quit.
+	quit := make(chan bool)
+	defer close(quit)
+
+	go acceptNewConns(ln, &clients, quit)
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		txt, err := reader.ReadString('\n')
 		if err != nil {
-			if err.Error() == "EOF" {
+			if errors.Is(err, io.EOF) {
 				break
 			}
-			os.Stderr.WriteString(fmt.Sprintf("Some error while reading from stdin [%s], closing teecp\n", err.Error()))
-			os.Exit(1)
+			return fmt.Errorf("error reading form stdin: %w\nclosing teecp", err)
 		}
-		teecp.Broadcast(txt)
+		clients.Broadcast(txt)
 	}
+
+	return nil
 }
 
-func acceptNewConns(ln net.Listener, teecp *tcp.TeeCPList) {
+func acceptNewConns(ln net.Listener, clients *teecp.Clients, quit chan bool) {
+	// We need the label to break out of the for loop because otherwise we would only break out of the select.
+LOOP:
 	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			os.Stderr.WriteString(fmt.Sprintf("tried to connect but failed %s\n", err.Error()))
-			return
-		}
-		handleConnection(conn, teecp)
-	}
-}
+		select {
+		case <-quit:
+			// Break out of the loop.
+			break LOOP
+		default:
+			conn, err := ln.Accept()
+			if err != nil {
+				os.Stderr.WriteString(fmt.Sprintf("tried to connect but failed %s\n", err.Error()))
+				return
+			}
 
-func handleConnection(conn net.Conn, teecp *tcp.TeeCPList) {
-	tcp.Attach(teecp, func(msg string) bool {
-		_, err := conn.Write([]byte(msg))
-		if err != nil {
-			conn.Close()
-			return false
+			// Add the connection as a client.
+			clients.Attach(func(msg string) bool {
+				if _, err := fmt.Fprint(conn, msg); err != nil {
+					conn.Close()
+					return false
+				}
+				return true
+			})
 		}
-		return true
-	})
+	}
 }

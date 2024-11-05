@@ -1,55 +1,37 @@
 package teecp
 
-type teeCPNode struct {
-	next   *teeCPNode
-	accept MsgReceiver
+import "sync"
+
+// Clients maintains a slice of receivers for teecp.
+type Clients struct {
+	mu        sync.Mutex
+	receivers []Receiver
 }
 
-type TeeCPList struct {
-	first *teeCPNode
-	last  *teeCPNode
-}
+// Broadcast sends a message to every knwon receiver. If the receiver is no longer active,
+// it is removed from the slice.
+func (c *Clients) Broadcast(msg string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-type MsgReceiver func(msg string) bool
+	for i := 0; i < len(c.receivers); i++ {
+		r := c.receivers[i]
 
-func removeNext(curr *teeCPNode, teecp *TeeCPList) func() {
-	return func() {
-		if curr.next == teecp.last {
-			teecp.last = curr
-		} else {
-			curr.next = curr.next.next
+		if !r(msg) {
+			// Replace the current receive with the last one in the slice and reset the index.
+			// This allows for in-place replacement.
+			c.receivers[i] = c.receivers[len(c.receivers)-1]
+			i--
 		}
-
 	}
 }
 
-func (teecp *TeeCPList) Broadcast(msg string) {
-	it := teecp.first
-	remove := func() {
-		if teecp.first == teecp.last {
-			teecp.first = nil
-			teecp.last = nil
-		}
-		teecp.first = teecp.first.next
-	}
-	for it != nil {
-		couldWrite := it.accept(msg)
-		if !couldWrite {
-			remove()
-		}
-		remove = removeNext(it, teecp)
-		it = it.next
-	}
+// Attach adds a receiver as a client.
+func (c *Clients) Attach(receiver Receiver) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.receivers = append(c.receivers, receiver)
 }
 
-func Attach(lista *TeeCPList, msgRecv MsgReceiver) *TeeCPList {
-	var nodo teeCPNode = teeCPNode{accept: msgRecv}
-	if lista.last == nil {
-		lista.first = &nodo
-		lista.last = &nodo
-	} else {
-		lista.last.next = &nodo
-		lista.last = &nodo
-	}
-	return lista
-}
+type Receiver func(msg string) bool

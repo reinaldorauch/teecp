@@ -8,14 +8,18 @@ import (
 	"io"
 	"net"
 	"os"
+	"regexp"
+	"time"
 
 	"github.com/jeffque/teecp/teecp"
 )
 
 type appState = int32
 type appStateDescription struct {
-	state       appState
-	description string
+	state          appState
+	description    string
+	waitConnection time.Duration
+	retryInterval  time.Duration
 }
 
 var appTypeStates = struct {
@@ -23,9 +27,9 @@ var appTypeStates = struct {
 	server    appStateDescription
 	client    appStateDescription
 }{
-	appStateDescription{0, "undefined"},
-	appStateDescription{1, "server"},
-	appStateDescription{2, "client"},
+	appStateDescription{0, "undefined", 0, 0},
+	appStateDescription{1, "server", 0, 0},
+	appStateDescription{2, "client", 0, 0},
 }
 
 func (s appStateDescription) isServer() bool {
@@ -35,9 +39,60 @@ func (s appStateDescription) isServer() bool {
 func defineState(desiredVal appStateDescription, currAppState *appStateDescription) func(s string) error {
 	return func(s string) error {
 		if currAppState.state != appTypeStates.undefined.state {
-			return fmt.Errorf("Already defined as a [%s], cannot be redefined as a [%s]", currAppState.description, desiredVal.description)
+			return fmt.Errorf("already defined as a [%s], cannot be redefined as a [%s]", currAppState.description, desiredVal.description)
 		}
 		*currAppState = desiredVal
+		return nil
+	}
+}
+
+func parseDurationOption(s string) (time.Duration, error) {
+	matched, err := regexp.MatchString("^\\d*$", s)
+
+	if matched && err == nil {
+		s += "s"
+	}
+
+	duration, err := time.ParseDuration(s)
+
+	if err != nil {
+		return duration, errors.New("invalid duration")
+	}
+
+	return duration, nil
+}
+
+func setWaitConnectionState(appState *appStateDescription) func(s string) error {
+	return func(s string) error {
+		if s == "true" {
+			s = "1s"
+		}
+		duration, err := parseDurationOption(s)
+
+		if err != nil {
+			return err
+		}
+
+		appState.waitConnection = duration
+
+		return nil
+	}
+}
+
+func setRetryIntervalState(appState *appStateDescription) func(s string) error {
+	return func(s string) error {
+		if s == "true" {
+			s = "1s"
+		}
+
+		duration, err := parseDurationOption(s)
+
+		if err != nil {
+			return err
+		}
+
+		appState.retryInterval = duration
+
 		return nil
 	}
 }
@@ -49,6 +104,8 @@ func main() {
 
 	flag.IntVar(&port, "port", 6667, "A listener port")
 	flag.BoolFunc("server", "Define a server teecp instance (conflict with --client)", defineState(appTypeStates.server, &serverClientSetted))
+	flag.BoolFunc("wait-connection", "Makes the client wait for a connection retrying until specified (requires --client)", setWaitConnectionState(&serverClientSetted))
+	flag.BoolFunc("retry-interval", "Sets the retry time interval for waiting a connection (requires --client and --wait-connection)", setRetryIntervalState(&serverClientSetted))
 	flag.BoolFunc("client", "Define a client teecp instance (conflicts with --server)", defineState(appTypeStates.client, &serverClientSetted))
 	flag.Parse()
 
@@ -56,7 +113,7 @@ func main() {
 	if serverClientSetted.isServer() {
 		err = serverTeecp(port)
 	} else {
-		err = listenerTeecp(port)
+		err = listenerTeecp(port, serverClientSetted)
 	}
 
 	if err != nil {
@@ -65,11 +122,40 @@ func main() {
 	}
 }
 
-func listenerTeecp(port int) error {
-	conn, err := net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
-	if err != nil {
-		return fmt.Errorf("Could not open socket to port %d: %w\n", port, err)
+func connectSocket(port int, appState appStateDescription) (net.Conn, error) {
+	var conn net.Conn
+	var err error
+	start := time.Now()
+
+	if appState.waitConnection > 0 {
+		fmt.Printf("Trying to connect to server for %f seconds\n", appState.waitConnection.Seconds())
 	}
+
+	for {
+		conn, err = net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
+
+		if appState.waitConnection == 0 || time.Since(start) > appState.waitConnection || appState.waitConnection < appState.retryInterval {
+			break
+		}
+
+		if err != nil {
+			fmt.Print(err)
+		}
+
+		fmt.Printf("\nWaiting for %f seconds\n", appState.retryInterval.Seconds())
+		time.Sleep(appState.retryInterval)
+	}
+
+	return conn, err
+}
+
+func listenerTeecp(port int, appState appStateDescription) error {
+	conn, err := connectSocket(port, appState)
+
+	if err != nil {
+		return fmt.Errorf("could not open socket to port %d: %w", port, err)
+	}
+
 	defer conn.Close()
 
 	reader := bufio.NewReader(conn)
@@ -99,7 +185,7 @@ func serverTeecp(port int) error {
 
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
-		return fmt.Errorf("Could not open socket to port %d: %w\n", port, err)
+		return fmt.Errorf("could not open socket to port %d: %w", port, err)
 	}
 	defer ln.Close()
 

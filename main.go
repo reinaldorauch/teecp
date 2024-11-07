@@ -29,7 +29,7 @@ var appTypeStates = struct {
 }{
 	appStateDescription{0, "undefined", 0, 0},
 	appStateDescription{1, "server", 0, 0},
-	appStateDescription{2, "client", 0, 0},
+	appStateDescription{2, "client", 0, time.Duration(1000000000)},
 }
 
 func (s appStateDescription) isServer() bool {
@@ -128,7 +128,7 @@ func connectSocket(port int, appState appStateDescription) (net.Conn, error) {
 	start := time.Now()
 
 	if appState.waitConnection > 0 {
-		fmt.Printf("Trying to connect to server for %f seconds\n", appState.waitConnection.Seconds())
+		fmt.Fprintf(os.Stderr, "Trying to connect to server for %f seconds\n", appState.waitConnection.Seconds())
 	}
 
 	for {
@@ -139,10 +139,10 @@ func connectSocket(port int, appState appStateDescription) (net.Conn, error) {
 		}
 
 		if err != nil {
-			fmt.Print(err)
+			fmt.Fprint(os.Stderr, err)
 		}
 
-		fmt.Printf("\nWaiting for %f seconds\n", appState.retryInterval.Seconds())
+		fmt.Fprintf(os.Stderr, "Waiting for %f seconds\n", appState.retryInterval.Seconds())
 		time.Sleep(appState.retryInterval)
 	}
 

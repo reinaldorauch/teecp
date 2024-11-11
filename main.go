@@ -1,42 +1,40 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
-	"net"
 	"os"
 	"regexp"
 	"time"
 
-	"github.com/jeffque/teecp/teecp"
+	"github.com/jeffque/teecp/teecp_client"
+	"github.com/jeffque/teecp/teecp_server"
 )
 
-type appState = int32
-type appStateDescription struct {
-	state          appState
+type AppState = int32
+type AppStateDescription struct {
+	state          AppState
 	description    string
 	waitConnection time.Duration
 	retryInterval  time.Duration
 }
 
 var appTypeStates = struct {
-	undefined appStateDescription
-	server    appStateDescription
-	client    appStateDescription
+	undefined AppStateDescription
+	server    AppStateDescription
+	client    AppStateDescription
 }{
-	appStateDescription{0, "undefined", 0, 0},
-	appStateDescription{1, "server", 0, 0},
-	appStateDescription{2, "client", 0, time.Duration(1000000000)},
+	AppStateDescription{0, "undefined", 0, 0},
+	AppStateDescription{1, "server", 0, 0},
+	AppStateDescription{2, "client", 0, time.Duration(1000000000)},
 }
 
-func (s appStateDescription) isServer() bool {
+func (s AppStateDescription) isServer() bool {
 	return s.state != appTypeStates.client.state
 }
 
-func defineState(desiredVal appStateDescription, currAppState *appStateDescription) func(s string) error {
+func defineState(desiredVal AppStateDescription, currAppState *AppStateDescription) func(s string) error {
 	return func(s string) error {
 		if currAppState.state != appTypeStates.undefined.state {
 			return fmt.Errorf("already defined as a [%s], cannot be redefined as a [%s]", currAppState.description, desiredVal.description)
@@ -62,7 +60,7 @@ func parseDurationOption(s string) (time.Duration, error) {
 	return duration, nil
 }
 
-func setWaitConnectionState(appState *appStateDescription) func(s string) error {
+func setWaitConnectionState(appState *AppStateDescription) func(s string) error {
 	return func(s string) error {
 		if s == "true" {
 			s = "1s"
@@ -79,7 +77,7 @@ func setWaitConnectionState(appState *appStateDescription) func(s string) error 
 	}
 }
 
-func setRetryIntervalState(appState *appStateDescription) func(s string) error {
+func setRetryIntervalState(appState *AppStateDescription) func(s string) error {
 	return func(s string) error {
 		if s == "true" {
 			s = "1s"
@@ -111,128 +109,13 @@ func main() {
 
 	var err error
 	if serverClientSetted.isServer() {
-		err = serverTeecp(port)
+		err = teecp_server.ServerTeecp(port)
 	} else {
-		err = listenerTeecp(port, serverClientSetted)
+		err = teecp_client.ListenerTeecp(port, serverClientSetted.waitConnection, serverClientSetted.retryInterval)
 	}
 
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
-	}
-}
-
-func connectSocket(port int, appState appStateDescription) (net.Conn, error) {
-	var conn net.Conn
-	var err error
-	start := time.Now()
-
-	if appState.waitConnection > 0 {
-		fmt.Fprintf(os.Stderr, "Trying to connect to server for %f seconds\n", appState.waitConnection.Seconds())
-	}
-
-	for {
-		conn, err = net.Dial("tcp", fmt.Sprintf("localhost:%d", port))
-
-		if appState.waitConnection == 0 || time.Since(start) > appState.waitConnection || appState.waitConnection < appState.retryInterval {
-			break
-		}
-
-		if err != nil {
-			fmt.Fprint(os.Stderr, err)
-		}
-
-		fmt.Fprintf(os.Stderr, "Waiting for %f seconds\n", appState.retryInterval.Seconds())
-		time.Sleep(appState.retryInterval)
-	}
-
-	return conn, err
-}
-
-func listenerTeecp(port int, appState appStateDescription) error {
-	conn, err := connectSocket(port, appState)
-
-	if err != nil {
-		return fmt.Errorf("could not open socket to port %d: %w", port, err)
-	}
-
-	defer conn.Close()
-
-	reader := bufio.NewReader(conn)
-	for {
-		txt, err := reader.ReadString('\n')
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return fmt.Errorf("error reading stream: %w\nclosing", err)
-		}
-
-		// Fprint not strictly needed, but doing so for consistency.
-		fmt.Fprint(os.Stdout, txt)
-	}
-
-	return nil
-}
-
-func serverTeecp(port int) error {
-	// When creating the teecp.Clients, always have a local client so we can see the echo.
-	clients := teecp.Clients{}
-	clients.Attach(func(msg string) bool {
-		fmt.Print(msg)
-		return true
-	})
-
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return fmt.Errorf("could not open socket to port %d: %w", port, err)
-	}
-	defer ln.Close()
-
-	// Create a channel so we can signal to the goroutine that it can quit.
-	quit := make(chan bool)
-	defer close(quit)
-
-	go acceptNewConns(ln, &clients, quit)
-
-	reader := bufio.NewReader(os.Stdin)
-	for {
-		txt, err := reader.ReadString('\n')
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return fmt.Errorf("error reading form stdin: %w\nclosing teecp", err)
-		}
-		clients.Broadcast(txt)
-	}
-
-	return nil
-}
-
-func acceptNewConns(ln net.Listener, clients *teecp.Clients, quit chan bool) {
-	// We need the label to break out of the for loop because otherwise we would only break out of the select.
-LOOP:
-	for {
-		select {
-		case <-quit:
-			// Break out of the loop.
-			break LOOP
-		default:
-			conn, err := ln.Accept()
-			if err != nil {
-				os.Stderr.WriteString(fmt.Sprintf("tried to connect but failed %s\n", err.Error()))
-				return
-			}
-
-			// Add the connection as a client.
-			clients.Attach(func(msg string) bool {
-				if _, err := fmt.Fprint(conn, msg); err != nil {
-					conn.Close()
-					return false
-				}
-				return true
-			})
-		}
 	}
 }

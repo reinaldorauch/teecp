@@ -1,15 +1,27 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
-func TestShouldTryToConnectDefaultPort(t *testing.T) {
+func TestMain(t *testing.M) {
+	// Setup
 	buildProgram()
+	code := t.Run()
+	// Teardown
+	removeArtifact()
+	os.Exit(code)
+}
+
+func TestShouldTryToConnectDefaultPort(t *testing.T) {
+	t.Parallel()
 	client := exec.Command("./teecp.exe", "--client")
 	output, err := client.CombinedOutput()
 
@@ -23,10 +35,11 @@ func TestShouldTryToConnectDefaultPort(t *testing.T) {
 }
 
 func TestShouldWaitForAtLeast1Second(t *testing.T) {
-	buildProgram()
-
+	t.Parallel()
 	client := exec.Command("./teecp.exe", "--client", "--wait-connection")
+	start := time.Now()
 	output, err := client.CombinedOutput()
+	runDuration := time.Since(start).Seconds()
 
 	if err == nil {
 		t.Error("must show error when connecting to a port without server")
@@ -36,17 +49,94 @@ func TestShouldWaitForAtLeast1Second(t *testing.T) {
 		t.Error("the default port that it tries should be 6667")
 	}
 
-	outputLines := strings.Split(string(output), "\n")
+	outputLines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(outputLines) != 4 {
 		t.Error("should have tried 2 times to connect")
 	}
 
-	client.ProcessState.UserTime()
+	if runDuration < 1.0 || runDuration > 1.05 {
+		t.Error("the default wait time should be around 1 second")
+	}
+}
+
+func TestShouldWaitForDefinedDuration(t *testing.T) {
+	t.Parallel()
+	var waitSeconds float64 = 2.0
+	client := exec.Command("./teecp.exe", "--client", fmt.Sprintf("--wait-connection=%.f", waitSeconds))
+	start := time.Now()
+	output, err := client.CombinedOutput()
+	runDuration := time.Since(start).Seconds()
+
+	if err == nil {
+		t.Error("client should show error when not connecting")
+	}
+
+	if lines := strings.Split(strings.TrimSpace(string(output)), "\n"); len(lines) != 6 {
+		t.Error("should output retry info for 3 times")
+	}
+
+	if runDuration < waitSeconds || runDuration > (waitSeconds+0.2) {
+		t.Errorf("client should wait for about %.f seconds", waitSeconds)
+	}
+}
+
+func TestUnderstandTimeUnitsWhenWaiting(t *testing.T) {
+	t.Parallel()
+	var waitMicroseconds int64 = 1000
+	client := exec.Command(
+		"./teecp.exe",
+		"--client",
+		fmt.Sprintf("--wait-connection=%dms", waitMicroseconds),
+		"--retry-interval=500ms",
+	)
+	start := time.Now()
+	output, err := client.CombinedOutput()
+	runDuration := time.Since(start).Milliseconds()
+
+	if err == nil {
+		t.Error("client should show error when not connecting")
+	}
+
+	if lines := strings.Split(strings.TrimSpace(string(output)), "\n"); len(lines) != 6 {
+		t.Error("should output retry info for 3 times")
+	}
+
+	if runDuration < waitMicroseconds || runDuration > (waitMicroseconds+60) {
+		t.Errorf("client should wait for about 1 second")
+	}
+}
+
+func TestSettingRetryIntervalWithoutWaitingShouldHaveNoEffect(t *testing.T) {
+	t.Parallel()
+	client := exec.Command(
+		"./teecp.exe",
+		"--client",
+		"--retry-interval=500ms",
+	)
+	output, err := client.CombinedOutput()
+
+	if err == nil {
+		t.Error("client should show error when not connecting")
+	}
+
+	if lines := strings.Split(strings.TrimSpace(string(output)), "\n"); len(lines) != 1 {
+		t.Error("should only have errored 1 time")
+	}
 }
 
 func buildProgram() {
+	fmt.Print("Building executable... ")
 	buildCommand := exec.Command("go", "build")
 	if err := buildCommand.Run(); err != nil {
 		log.Fatal("could not build program")
+	}
+	fmt.Print("Done.\n")
+}
+
+func removeArtifact() {
+	if _, err := os.Stat("teecp.exe"); err != nil {
+		if err := os.Remove("teecp.exe"); err != nil {
+			log.Fatal("could not remove existing executable")
+		}
 	}
 }

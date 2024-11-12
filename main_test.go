@@ -2,23 +2,12 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 )
-
-func TestMain(t *testing.M) {
-	// Setup
-	buildProgram()
-	code := t.Run()
-	// Teardown
-	removeArtifact()
-	os.Exit(code)
-}
 
 func TestShouldTryToConnectDefaultPort(t *testing.T) {
 	t.Parallel()
@@ -122,21 +111,5 @@ func TestSettingRetryIntervalWithoutWaitingShouldHaveNoEffect(t *testing.T) {
 	if lines := strings.Split(strings.TrimSpace(string(output)), "\n"); len(lines) != 1 {
 		t.Error("should only have errored 1 time")
 	}
-}
-
-func buildProgram() {
-	fmt.Print("Building executable... ")
-	buildCommand := exec.Command("go", "build")
-	if err := buildCommand.Run(); err != nil {
-		log.Fatal("could not build program")
-	}
 	fmt.Print("Done.\n")
-}
-
-func removeArtifact() {
-	if _, err := os.Stat("teecp.exe"); err != nil {
-		if err := os.Remove("teecp.exe"); err != nil {
-			log.Fatal("could not remove existing executable")
-		}
-	}
 }
